@@ -16,13 +16,13 @@ void test01()
     std::vector<int> uv = {960, 540};
     float focal = 4.3;
     float distance = 100;
-    int   distance_type = 1;
+    int   distance_type = 0; //不使用激光测距，假设大地水平，根据无人机距离起飞点高度作为该垂直高度的估计值
 
     std::vector<float> euler_camera   = {0.0, 0.0, 0.0};
     std::vector<float> euler_drone    = {0.0, 0.0, 0.0};
     std::vector<float> position_drone = {30.0, 104.0, 100.0, 300.0};
 
-    geo_location.set_parameter((uint16_t)1920, (uint16_t)1080, 4.3, 1482.0, 1482.0, 960.0, 540.0);
+    geo_location.set_parameter((uint16_t)1920, (uint16_t)1080, 4.3, 1482.0, 1482.0, 960.0, 540.0); // img_width, img_height, focal, fx, fy, cx, cy
     result = geo_location.get_target_location(uv, focal, distance, euler_camera, euler_drone, position_drone, distance_type); 
 
     printf("p_b: %f, %f, %f\n", result["p_b"][0], result["p_b"][1], result["p_b"][2]);
