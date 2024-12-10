@@ -90,16 +90,18 @@ std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(
     K << _fx*zoom, 0, _cx, 0, _fy*zoom, _cy, 0, 0, 1;
 
     /* 1-2. 准备转移矩阵 */
-    float roll_c  = euler_camera[0];
+    float yaw_c  = euler_camera[0];
     float pitch_c = euler_camera[1];
-    float yaw_c   = euler_camera[2];
-    float roll_b  = euler_drone[0];
+    float roll_c   = euler_camera[2];
+    float yaw_b  = euler_drone[0];
     float pitch_b = euler_drone[1];
-    float yaw_b   = euler_drone[2];
+    float roll_b   = euler_drone[2];
 
     Matrix3d Rcb, Rbe;
-    Rcb = AngleAxisd(yaw_c, Vector3d::UnitZ()) * AngleAxisd(pitch_c, Vector3d::UnitY()) * AngleAxisd(roll_c, Vector3d::UnitX());
-    Rbe = AngleAxisd(yaw_b, Vector3d::UnitZ()) * AngleAxisd(pitch_b, Vector3d::UnitY()) * AngleAxisd(roll_b, Vector3d::UnitX());
+    // Rcb = AngleAxisd(yaw_c, Vector3d::UnitZ()) * AngleAxisd(pitch_c, Vector3d::UnitY()) * AngleAxisd(roll_c, Vector3d::UnitX());
+    Rcb = AngleAxisd(roll_c, Vector3d::UnitZ()) * AngleAxisd(pitch_c, Vector3d::UnitY()) * AngleAxisd(yaw_c, Vector3d::UnitX());
+    // Rbe = AngleAxisd(yaw_b, Vector3d::UnitZ()) * AngleAxisd(pitch_b, Vector3d::UnitY()) * AngleAxisd(roll_b, Vector3d::UnitX());
+    Rbe = AngleAxisd(roll_b, Vector3d::UnitZ()) * AngleAxisd(pitch_b, Vector3d::UnitY()) * AngleAxisd(yaw_b, Vector3d::UnitX());
     // cout << "Rcb=\n" << Rcb << endl;
     // cout << "Rbe=\n" << Rbe << endl;
 
