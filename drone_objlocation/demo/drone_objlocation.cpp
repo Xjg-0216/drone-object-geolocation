@@ -11,15 +11,13 @@ DroneObjlocation::DroneObjlocation()
  * @brief 设置相机参数，推荐对相机提前校准
  * @param img_width    相机图像宽度
  * @param img_height   相机图像高度
- * @param focal        一倍变焦时的焦距值，单位mm
  * @param fx   fx，像素焦距，如果没有校准，fx=focal/sigma，其中sigma为像元大小
  * @param fy   fy，如果没有校准则与fx一样
  * @param cx   cx，如果没有校准，cx=img_width/2
  * @param cy   cy，如果没有校准，cy=img_height/2
  */
-DroneObjlocation::DroneObjlocation(uint16_t img_width, uint16_t img_height, float focal, float fx, float fy, float cx, float cy)
+DroneObjlocation::DroneObjlocation(uint16_t img_width, uint16_t img_height, float fx, float fy, float cx, float cy)
 {
-    _focal_base = focal;     //mm
     _img_width  = img_width;
     _img_height = img_height;
     _fx = fx;
@@ -33,28 +31,18 @@ Eigen::Matrix3d DroneObjlocation::get_K()
 {
     return K;
 }
-Eigen::Matrix3d DroneObjlocation::get_K(float focal)
-{
-    Matrix3d K;
-    // 根据焦距最小时校正的参数获得变焦后的K矩阵参数
-    float zoom = focal / _focal_base;
-    K << _fx*zoom, 0, _cx, 0, _fy*zoom, _cy, 0, 0, 1;
-    return K;
-}
 
 /**
  * @brief 设置相机参数
  * @param img_width    相机图像宽度
  * @param img_height   相机图像高度
- * @param focal        一倍变焦时的焦距值，单位mm
  * @param fx   fy，像素焦距
  * @param fy   fx，像素焦距
  * @param cx  cx
  * @param cy  cy
  */
-void DroneObjlocation::set_parameter(uint16_t img_width, uint16_t img_height, float focal, float fx, float fy, float cx, float cy)
+void DroneObjlocation::set_parameter(uint16_t img_width, uint16_t img_height, float fx, float fy, float cx, float cy)
 {
-    _focal_base = focal;     //mm
     _img_width  = img_width;
     _img_height = img_height;
     _fx = fx;
@@ -67,29 +55,22 @@ void DroneObjlocation::set_parameter(uint16_t img_width, uint16_t img_height, fl
 /**
  * @brief 根据目标相机坐标系下坐标计算目标在机体坐标系下的坐标
  * @param uv             目标所在图像中的像素坐标ux,vy
- * @param focal          相机焦距
- * @param distance       激光测距，即吊舱与图像中心对应的地面目标之间的距离
- * @param euler_camera   吊舱姿态角roll,pitch,yaw
+ * @param height       无人机距离地面的高度
+ * @param euler_camera   相机安装姿态角roll,pitch,yaw
  * @param euler_drone    无人机姿态角roll,pitch,yaw
  * @param position_drone 无人机经纬高坐标(lat,lon,alt)
- * @param distance_type  0-distance代表无人机距离起飞点垂直高度，1-distance代表激光测距
- * @return 目标在相机、机体、站点NED坐标系下的坐标
+ * @return 目标在相机、无人机体、大地点NED坐标系、GPS的坐标
  */
-std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(std::vector<int> uv, float focal, float distance, 
+std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(std::vector<float> uv, float height, 
                                                                             std::vector<float> euler_camera, 
                                                                             std::vector<float> euler_drone, 
-                                                                            std::vector<float> position_drone,
-                                                                            int distance_type)
+                                                                            std::vector<float> position_drone)
 {
     std::map<std::string, std::vector<float>> results = {{"p_c", {}}, {"p_b", {}}, {"p_e", {}}, {"gps", {}}};
 
-    /* 1-1. 根据焦距求K矩阵 */
-    Matrix3d K;
-    // 根据焦距最小时校正的参数获得变焦后的K矩阵参数
-    float zoom = focal / _focal_base;
-    K << _fx*zoom, 0, _cx, 0, _fy*zoom, _cy, 0, 0, 1;
-
-    /* 1-2. 准备转移矩阵 */
+    /* 1-1. 相机内参K矩阵 */
+    // k
+    /* 1-2. 旋转矩阵 */
     float yaw_c  = euler_camera[0];
     float pitch_c = euler_camera[1];
     float roll_c   = euler_camera[2];
@@ -108,34 +89,10 @@ std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(
     /* 1-3. 参考向量，在站点NED坐标系下与z轴同方向 */
     Vector3d pref_g(0, 0, 1);
 
-    /* 2. 求无人机距离目标所在水平平面垂直高度
-     * 若开启了激光测距，根据激光测距获取
-     * 若没有开启激光测距，则假设大地水平，根据无人机距离起飞点高度作为该垂直高度的估计值
+    /* 2. 假设大地水平，根据无人机高度作为该垂直高度的估计值
      */
-    float H, L, theta_1;
-    Vector3d p0_c, p0_e;
-    switch(distance_type)
-    {
-        case 0:
-            H = distance;
-            break;
-        case 1:
-            // 激光测距距离，机无人机与图像中心对应的地面位置之间的距离为L=distance
-            L = distance;
-            // p0在相机坐标系下的坐标
-            p0_c = Vector3d(L, 0, 0);
-            // p0在站点NED坐标系下的坐标
-            p0_e = Rbe * Rcb * p0_c;
-            // 归一化
-            p0_e.normalize();
-            // 求与参考向量的夹角theta_1
-            theta_1 = asin(p0_e.cross(pref_g).norm());
-            // 得到距离目标所在水平平面垂直高度
-            H = L * cos(theta_1);
-            // cout << "theta_1, in rad=" << theta_1 << ", in deg=" << theta_1 * 180 / M_PI << endl;
-            // cout << "H=" << H << endl;
-            break;
-    }
+    float H;
+    H = height;
 
     /* 3. 求相机到目标target的距离 */
     // 目标在图像坐标系下的坐标
@@ -189,50 +146,6 @@ std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(
     results["p_e"] = {(float)(pt_e.x()), (float)(pt_e.y()), (float)(pt_e.z())};
     results["gps"] = {(float)(pt_lla.x()), (float)(pt_lla.y()), (float)(pt_lla.z())};
     return results;
-}
-
-
-Vector3d DroneObjlocation::calculate_second_gps_ned(Vector3d gps1, float distance, float angle)
-{
-	/*根据目标点1相关数据计算目标点2GPS坐标*/
-	Vector3d gps2;
-	float R = 6371000.0;
-	double lat1 = gps1.x() / Rad_to_deg;
-	double lon1 = gps1.y() / Rad_to_deg;
-    double alt1 = gps1.z();
-	double pi_half = M_PI / 2.0;
-	double c = distance / R;
-
-	double a = acos(cos(pi_half - lat1)*cos(c) + sin(pi_half - lat1)*sin(c) * cos(angle));
-	double C = asin(sin(c)*sin(angle) / sin(a));
-
-	double lat2 = (pi_half - a) * Rad_to_deg;
-	double lon2 = (lon1 + C) * Rad_to_deg;
-
-	gps2 << lat2, lon2, alt1;
-	return gps2;
-}
-
-/**
-* @brief 根据目标在局部坐标系的坐标与无人机当前的经纬度计算目标的经纬度
-* @param origin_local	  无人机当前经纬度
-* @param local_positions  目标在局部坐标系下的坐标（默认设置只存在旋转）
-* @return 目标的经纬度
-*/
-Vector3d DroneObjlocation::convert_position_local2global(Vector3d origin_local, Vector3d local_positions)
-{
-	float l_x = local_positions.x();
-	float l_y = local_positions.y();
-	Vector3d gps_lat;
-	Vector3d gps_lon;
-	Vector3d gps_return;
-	l_x >= 0 ? gps_lat = DroneObjlocation::calculate_second_gps_ned(origin_local, l_x, 0) : gps_lat = DroneObjlocation::calculate_second_gps_ned(origin_local, -l_x, M_PI);
-	l_y >= 0 ? gps_lon = DroneObjlocation::calculate_second_gps_ned(origin_local, l_y, M_PI / 2) : gps_lon = DroneObjlocation::calculate_second_gps_ned(origin_local, -l_y, -M_PI / 2);
-	float lat = gps_lat.x();
-	float lon = gps_lon.y();
-    float alt = origin_local.z() + local_positions.z();
-	gps_return << lat, lon, alt;
-	return gps_return;
 }
 
 /**
