@@ -8,10 +8,10 @@ DroneObjlocation::DroneObjlocation()
 }
 
 /**
- * @brief 设置相机参数，推荐对相机提前校准
+ * @brief 设置相机参数
  * @param img_width    相机图像宽度
  * @param img_height   相机图像高度
- * @param fx   fx，像素焦距，如果没有校准，fx=focal/sigma，其中sigma为像元大小
+ * @param fx   fx，像素焦距
  * @param fy   fy，如果没有校准则与fx一样
  * @param cx   cx，如果没有校准，cx=img_width/2
  * @param cy   cy，如果没有校准，cy=img_height/2
@@ -74,19 +74,19 @@ std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(
     float yaw_c  = euler_camera[0];
     float pitch_c = euler_camera[1];
     float roll_c   = euler_camera[2];
-    float yaw_b  = euler_drone[0];
-    float pitch_b = euler_drone[1];
-    float roll_b   = euler_drone[2];
+    float yaw_d  = euler_drone[0];
+    float pitch_d = euler_drone[1];
+    float roll_d   = euler_drone[2];
 
-    Matrix3d Rcb, Rbe;
-    // Rcb = AngleAxisd(yaw_c, Vector3d::UnitZ()) * AngleAxisd(pitch_c, Vector3d::UnitY()) * AngleAxisd(roll_c, Vector3d::UnitX());
-    Rcb = AngleAxisd(roll_c, Vector3d::UnitZ()) * AngleAxisd(pitch_c, Vector3d::UnitY()) * AngleAxisd(yaw_c, Vector3d::UnitX());
-    // Rbe = AngleAxisd(yaw_b, Vector3d::UnitZ()) * AngleAxisd(pitch_b, Vector3d::UnitY()) * AngleAxisd(roll_b, Vector3d::UnitX());
-    Rbe = AngleAxisd(roll_b, Vector3d::UnitZ()) * AngleAxisd(pitch_b, Vector3d::UnitY()) * AngleAxisd(yaw_b, Vector3d::UnitX());
-    // cout << "Rcb=\n" << Rcb << endl;
-    // cout << "Rbe=\n" << Rbe << endl;
+    Matrix3d Rcd, Rde;
+    // Rcd = AngleAxisd(yaw_c, Vector3d::UnitZ()) * AngleAxisd(pitch_c, Vector3d::UnitY()) * AngleAxisd(roll_c, Vector3d::UnitX());
+    Rcd = AngleAxisd(roll_c, Vector3d::UnitZ()) * AngleAxisd(pitch_c, Vector3d::UnitY()) * AngleAxisd(yaw_c, Vector3d::UnitX());
+    // Rde = AngleAxisd(yaw_d, Vector3d::UnitZ()) * AngleAxisd(pitch_d, Vector3d::UnitY()) * AngleAxisd(roll_d, Vector3d::UnitX());
+    Rde = AngleAxisd(roll_d, Vector3d::UnitZ()) * AngleAxisd(pitch_d, Vector3d::UnitY()) * AngleAxisd(yaw_d, Vector3d::UnitX());
+    // cout << "Rcd=\n" << Rcd << endl;
+    // cout << "Rde=\n" << Rde << endl;
 
-    /* 1-3. 参考向量，在站点NED坐标系下与z轴同方向 */
+    /* 1-3. 参考向量，在大地NED坐标系下与z轴同方向 */
     Vector3d pref_g(0, 0, 1);
 
     /* 2. 假设大地水平，根据无人机高度作为该垂直高度的估计值
@@ -104,7 +104,7 @@ std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(
     // 归一化平面坐标系到相机坐标系
     Vector3d pt_c_norm(pt_norm.z(), pt_norm.x(), pt_norm.y());
     // 相机坐标系到站点NED坐标系
-    Vector3d pt_e_norm = Rbe * Rcb * pt_c_norm;
+    Vector3d pt_e_norm = Rde * Rcd * pt_c_norm;
     pt_e_norm.normalize();
     // 求与参考向量夹角theta_2
     float theta_2 = asin(pt_e_norm.cross(pref_g).norm());
@@ -116,15 +116,15 @@ std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(
     Vector3d pt_c = pt_c_norm / pt_c_norm.norm() * Lt;
     // cout << "pt_c=" << pt_c << endl;
 
-    /* 4-2. 求目标在机体坐标系下坐标 */
-    Vector3d pt_b = Rcb * pt_c;
-    // cout << "pt_b=" << pt_b << endl;
+    /* 4-2. 求目标在无人机坐标系下坐标 */
+    Vector3d pt_d = Rcd * pt_c;
+    // cout << "pt_d=" << pt_d << endl;
 
-    /* 4-3. 求目标在站点NED坐标系下坐标 */
-    Vector3d pt_e = Rbe * pt_b;
+    /* 4-3. 求目标在大地NED坐标系下坐标 */
+    Vector3d pt_e = Rde * pt_d;
     // cout << "pt_e=" << pt_e << endl;
 
-    /* 4-4. 求无人机在ECEF坐标系下坐标（即站点ECEF坐标） */
+    /* 4-4. 求无人机在ECEF坐标系下坐标（即大地ECEF坐标） */
     Vector3d drone_ecef = LatLonAlt2ECEF(Vector3d(position_drone[0], position_drone[1], position_drone[2]));
 
     /* 4-5. 求目标在ECEF坐标系下坐标 */
@@ -132,15 +132,9 @@ std::map<std::string, std::vector<float>> DroneObjlocation::get_target_location(
     Vector3d pt_ecef    = R_ned2ecef * pt_e + drone_ecef;
 
     /* 4-6. 求目标经纬高 */
-    // 方法1
     Vector3d pt_lla = ECEF2LatLonAlt(pt_ecef);
     // cout << "pt_lla=" << pt_lla << endl;
-    // 方法2
-    // Vector3d drone_gps(position_drone[0], position_drone[1], position_drone[2]);
-    // Vector3d pt_lla = convert_position_local2global(drone_gps, pt_e);
 
-
-    /* */
     results["p_c"] = {(float)(pt_c.x()), (float)(pt_c.y()), (float)(pt_c.z())};
     results["p_b"] = {(float)(pt_b.x()), (float)(pt_b.y()), (float)(pt_b.z())};
     results["p_e"] = {(float)(pt_e.x()), (float)(pt_e.y()), (float)(pt_e.z())};
@@ -237,9 +231,9 @@ Vector3d DroneObjlocation::ECEF2LatLonAlt(Vector3d pointECEF)
 
 
 /**
-* @brief 计算站点NED坐标系到ECEF坐标系的转移矩阵
-* @param pointLLA	 站点的经纬高坐标
-* @return 旋转矩阵，站点NED坐标系到ECEF坐标系
+* @brief 计算大地NED坐标系到ECEF坐标系的转移矩阵
+* @param pointLLA	 大地的经纬高坐标
+* @return 旋转矩阵，大地NED坐标系到ECEF坐标系
 */
 Matrix3d DroneObjlocation::CalRotation_NED2ECEF(Vector3d pointLLA)
 {
